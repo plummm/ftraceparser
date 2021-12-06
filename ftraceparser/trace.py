@@ -18,8 +18,11 @@ class Trace:
         self.blacklist = []
         self.index2node = {}
         self.begin_node = {}
+        self.filter_list = ['pid', 'cpu', 'task', 'time_stamp', 'event', 'entry']
+        self.filter = {}
         self.logger = logger
         self.debug = debug
+        self.remove_filter_all()
         if self.logger == None:
            self.logger = init_logger(__name__, debug=self.debug, propagate=self.debug, handler_type=STREAM_HANDLER)
     
@@ -87,46 +90,92 @@ class Trace:
 
         self.n_task = len(self.begin_node)
         return self.begin_node
+    
+    def show_filters(self):
+        for filter_name in self.filter_list:
+            if self.filter[filter_name] != None:
+                self.logger.info('Filter: {}=={}'.format(filter_name, self.filter[filter_name]))
+    
+    def add_filter(self, filter_name, filter_expr):
+        if filter_name in self.filter_list:
+            self.filter[filter_name].append(filter_expr)
+            return len(self.filter[filter_name]) - 1
+    
+    def remove_filter_all(self):
+        for filter_name in self.filter_list:
+            self.remove_filter(filter_name)
+
+    def remove_filter(self, filter_name):
+        if filter_name in self.filter_list:
+            self.filter[filter_name] = []
+    
+    def remove_filter_inst(self, filter_name, index):
+        if filter_name in self.filter_list:
+            try:
+                self.filter[filter_name].pop(index)
+            except IndexError:
+                self.logger.error('Index out of range')
+    
+    def is_filtered(self, node):
+        for key in self.filter:
+            for expr in self.filter[key]:
+                if key == 'entry':
+                    hop = self.get_hops_from_entry_node(node)
+                    entry_node = self.find_node(hop.pop())
+                    if not eval('\"{}\"{}'.format(getattr(entry_node, 'id'), expr)) \
+                       and not eval('\"{}\"{}'.format(getattr(entry_node, 'function_name'), expr)):
+                        return True
+                elif not eval('\"{}\"{}'.format(getattr(node, key), expr)):
+                        return True
+        return False
+    
+    def get_hops_from_entry_node(self, node):
+        hop = [node.id]
+        while node.parent != None:
+            node = node.parent
+            hop.append(node.id)
+        return hop
 
     def find_node(self, node_id: int):
         if node_id in self.index2node:
                 return self.index2node[node_id]
         return None
     
-    def find_info(self, info, find_all=False, task=None, start_node=None):
+    def find_info(self, info, find_all=False, start_node=None):
         res = []
-        if task != None:
-            for bnode in self.begin_node:
-                if bnode.pid != task:
-                    continue
-                if start_node != None:
-                    bnode = start_node.next_node
-                while bnode != None:
-                    if bnode.info.find(info) != -1:
-                        res.append(bnode)
-                        if not find_all:
-                            return res
-                    bnode = bnode.next_node
+        if start_node != None:
+            bnode = start_node.next_node_by_time
         else:
-            if start_node != None:
-                bnode = start_node.next_node_by_time
-            else:
-                bnode = self.begin_node[0]
-            while bnode != None:
-                    if bnode.info.find(info) != -1:
+            bnode = self.begin_node[0]
+        while bnode != None:
+                if bnode.info.find(info) != -1:
+                    if not self.is_filtered(bnode):
                         res.append(bnode)
                         if not find_all:
                             return res
-                    bnode = bnode.next_node_by_time
+                bnode = bnode.next_node_by_time
         return res
     
     def print_banner(self):
-        banner = "id{}|task|  pid  | cpu | time stamp: event".format((10-len('id'))*' ')
-        align = ' ' * (75 - len(banner))
+        banner = "id{}|task{}| pid{} | cpu{}| time stamp: event".format((10-len('id'))*' ', (15-len('task'))*' ', (10-len('pid'))*' ', (7-len('cpu'))*' ')
+        align = ' ' * (91 - len(banner))
         banner += align + '| info'
         print(banner)
     
-    def print_node(self, node, highlight=False, trim_bracket=False):
+    def print_cpu_banner(self):
+        banner = '|'
+        for i in range(self.n_cpu):
+            banner += ' CPU {} |'.format(i)
+        print(banner)
+    
+    def print_node(self, node, highlight=False, trim_bracket=False, warn_when_filtered=False):
+        if node is None:
+            print('Content has been truncated. This trace did not finish before killing the process.')
+            return
+        if self.is_filtered(node):
+            if warn_when_filtered:
+                self.logger.warning('some nodes are filtered')
+            return
         data = node.text.split('|')
         align = 10 - len(str(node.id))
         if highlight:
@@ -138,22 +187,26 @@ class Trace:
         print(header)
     
     def print_trace(self, start_node, level=0, length=30, end_node=None):
-        if length <= 0:
+        if length <= 0 or start_node == None:
             return length
         if start_node.function_name in self.blacklist:
-            return length
-        self.print_node(start_node, trim_bracket=(level == 0 and start_node.children != []))
-        if start_node.id == end_node:
+            return self.print_trace(start_node.next_sibling, level, length, end_node)
+        self.print_node(start_node, trim_bracket=(level == 0 and start_node.children != []), warn_when_filtered=False)
+        if end_node != None and start_node.id == end_node.id:
             return 0
         length -= 1
         if level > 0:
-            for node in start_node.children:
-                length = self.print_trace(node, level-1, length, end_node)
+            if len(start_node.children) > 0:
+                length = self.print_trace(start_node.children[0], level-1, length, end_node)
 
         if length > 0:
             if start_node.is_function and start_node.is_root and level>0:
                 self.print_node(start_node.scope_end_node)
                 length -= 1
+                if end_node != None and start_node.scope_end_node.id == end_node.id:
+                    return 0
+        
+        length = self.print_trace(start_node.next_sibling, level, length, end_node)
         return length
     
     def dump_to_json(self, file_name):

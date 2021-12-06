@@ -14,25 +14,44 @@ class Terminal(Trace):
         self._regx_cmd_find = r'^(find|findall) ([A-Za-z0-9_.]+)( in task (\d+))?'
         self._regx_cmd_caller = r'^caller (\d+)'
         self._regx_cmd_callee = r'^callee (\d+)'
-        self._regx_cmd_syscall = r'^syscall (\d+)'
+        self._regx_cmd_entry = r'^entry'
         self._regx_cmd_pdn = r'^pdn(\d+)? (\d+)(\/(\d+))?'
         self._regx_cmd_pdf = r'^pdf (\d+)(\/(\d+))?'
         self._regx_cmd_block = r'^block'
         self._regx_cmd_delete = r'^delete'
+        self._regx_cmd_filter = r'^filter(( .+)|$)'
+        self._regx_cmd_filter_delete = r'^filter-d'
+        self._regx_cmd_clear = r'^clear'
 
     def run(self):
+        tmp_filter = []
+
         set_title("Ftrace Parser")
         self.load_tracefile(self.file)
         self.serialize()
         while True:
+            if tmp_filter != []:
+                for each in tmp_filter:
+                    self.remove_filter_inst(each[0], each[1])
+                tmp_filter = []
             try:
                 command = input('ftrace-parser> ')
             except KeyboardInterrupt:
                 print('\nexit ftrace-parser by exit() or Ctrl-D')
+                continue
             except EOFError:
-                break
+                exit(0)
             if command == 'exit':
-                break
+                exit(0)
+            
+            if command.find('|') != -1:
+                t = command.split('|')
+                if len(t) > 2:
+                    self._error('unkown format for filter')
+                    continue
+                command = t[0]
+                filter_cmd = t[1]
+                tmp_filter = self.build_temp_filter(filter_cmd)
 
             # find | findall
             if regx_match(self._regx_cmd_find, command):
@@ -49,9 +68,9 @@ class Terminal(Trace):
                 self.cmd_callee(command)
                 continue
 
-            # syscall
-            if regx_match(self._regx_cmd_syscall, command):
-                self.cmd_syscall(command)
+            # entry
+            if regx_match(self._regx_cmd_entry, command):
+                self.cmd_entry(command)
                 continue
             
             # pdn
@@ -73,20 +92,30 @@ class Terminal(Trace):
             if regx_match(self._regx_cmd_delete, command):
                 self.cmd_delete(command)
                 continue
+            
+            # filter
+            if regx_match(self._regx_cmd_filter, command):
+                self.cmd_filter(command)
+                continue
+            
+            # filter-d
+            if regx_match(self._regx_cmd_filter_delete, command):
+                self.cmd_filter_delete(command)
+                continue
+
+            # clear
+            if regx_match(self._regx_cmd_clear, command):
+                self.cmd_clear()
+                continue
 
     def cmd_find(self, command):
-        m = regx_getall(r'(find|findall) ([A-Za-z0-9_.]+)( in task (\d+))?', command)[0]
+        m = regx_getall(r'(find|findall) ([A-Za-z0-9_.]+)', command)[0]
         findall = False
         find_mode = m[0]
         info = m[1]
-        task = m[3]
-        if task == '':
-            task = None
-        else:
-            task = int(task)
         if find_mode == 'findall':
             findall = True
-        res = self.find_info(task=task, info=info, find_all=findall)
+        res = self.find_info(info=info, find_all=findall)
         for node in res:
             self.show_around(node)
         if findall or len(res) == 0:
@@ -96,7 +125,7 @@ class Terminal(Trace):
         while True:
             find_next = input('find next? (Y/n)')
             if find_next != 'n':
-                res = self.find_info(task=task, info=info, start_node=res[-1])
+                res = self.find_info(info=info, start_node=res[-1])
                 if len(res) == 0:
                     break
                 for node in res:
@@ -119,7 +148,7 @@ class Terminal(Trace):
             self._print_hightlight('node {} is the top-level system call and it does not have a caller'.format(node_id))
         p_trace = input('print top-level trace? (N/y)')
         if p_trace == 'y':
-            self.print_trace(node.parent.next_node, end_node=node.id, level=10)
+            self.print_trace(node.parent.next_node, end_node=node, level=10)
         return
     
     def cmd_callee(self, command):
@@ -132,30 +161,36 @@ class Terminal(Trace):
         self.print_banner()
         self.print_trace(node, level=1, length=MAX_LINES)
     
-    def cmd_syscall(self, command):
+    def cmd_entry(self, command):
         try:
-            node_id = int(regx_get(r'syscall (\d+)', command, 0))
+            m = regx_getall(r'entry (\d+)', command)
         except ValueError:
             self._error('syscall: invalid node id')
             return
-        node = self.find_node(node_id)
-        hop = [node.id]
-        while node.parent != None:
-            node = node.parent
-            hop.append(node.id)
-        hop.pop()
-        self.print_banner()
-        self.print_node(node)
-        p_trace = input('print top-level trace? (N/y)')
-        if p_trace == 'y':
-            for each_node_id in hop[::-1]:
-                self.print_trace(node.next_node, end_node=each_node_id, level=0)
-                node = self.find_node(each_node_id)
+        if len(m) > 0:
+            node_id = int(m[0])
+            node = self.find_node(node_id)
+            hop = self.get_hops_from_entry_node(node)
+            node = self.find_node(hop.pop())
+            self.print_banner()
+            self.print_node(node)
+            p_trace = input('print top-level trace? (N/y)')
+            if p_trace == 'y':
+                for each_node_id in hop[::-1]:
+                    self.print_trace(node.next_node, end_node=self.find_node(each_node_id), level=0)
+                    node = self.find_node(each_node_id)
+        else:
+            begin_node = self.find_node(0)
+            self.print_banner()
+            while begin_node != None:
+                if begin_node.parent is None and begin_node.is_function:
+                    self.print_node(begin_node, trim_bracket=True)
+                begin_node = begin_node.next_node_by_time
     
     def cmd_pdn(self, command):
         try:
             m = regx_getall(self._regx_cmd_pdn, command)[0]
-            if m[0] == '':
+            if m[0] != '':
                 n_lines = int(m[0])
             else:
                 n_lines = 1
@@ -165,11 +200,11 @@ class Terminal(Trace):
             else:
                 level = 0
         except ValueError:
-            self._error('pd: invalid node id')
+            self._error('pdn: invalid node id')
             return
         node = self.find_node(node_id)
         self.print_banner()
-        self.print_trace(node, level=level, legnth=n_lines)
+        self.print_trace(node, level=level, length=n_lines)
         return
     
     def cmd_pdf(self, command):
@@ -188,7 +223,7 @@ class Terminal(Trace):
             self._error('pdf: node {} is not a function begginning'.format(node_id))
             return
         self.print_banner()
-        self.print_trace(node, level=level, length=MAX_LINES)
+        self.print_trace(node, level=level, length=MAX_LINES, end_node=node.scope_end_node)
     
     def cmd_block(self, command):
         try:
@@ -214,6 +249,62 @@ class Terminal(Trace):
             return
         if len(m) == 0:
             self.blacklist = []
+    
+    def cmd_filter(self, command):
+        if command == 'filter':
+            self.show_filters()
+            return
+        try:
+            m = regx_get(r'^filter by (.+)', command, 0)
+        except ValueError:
+            self._error('filter: invalid arguments. [by task|by pid|by cpu|by time stamp|by event|by entry]')
+            return
+        exprs = m.split(' ')
+        for each_expr in exprs:
+            [_, index] = self.add_filter(each_expr)
+            if index != -1:
+                self._info('filter {}: {} added'.format(index, each_expr))
+    
+    def cmd_filter_delete(self, command):
+        if command == 'filter-d':
+            self.remove_filter_all()
+            return
+        try:
+            m = regx_get(r'^filter-d (.+)', command, 0)
+        except ValueError:
+            self._error('filter-d: invalid arguments. [task|pid|cpu|time_stamp|event|entry]')
+            return
+        filters = m.split(' ')
+        for each in filters:
+            self.remove_filter(each)
+                
+    def add_filter(self, expr):
+        key = ''
+        index = -1
+        for each in ['<=', '>=', '==']:
+            if expr.find(each) != -1:
+                t = expr.split(each)
+                key = t[0]
+                data = t[1]
+                if data[0] != '"' or data[-1] != '"':
+                    data = '"' + data + '"'
+                if key in self.filter:
+                    index = super().add_filter(key, each+data)
+                else:
+                    self._error('filter: invalid filter {}'.format(key))
+        return [key, index]
+
+    def build_temp_filter(self, filter_cmd):
+        res = []
+        exprs = filter_cmd.split(' ')
+        for each_expr in exprs:
+            [key, index] = self.add_filter(each_expr)
+            if index != -1:
+                res.append([key, index])
+        return res
+    
+    def cmd_clear(self):
+        reset_terminal()
     
     def show_around(self, node, deep=3, n=0):
         self.print_banner()
@@ -241,3 +332,6 @@ class Terminal(Trace):
     
     def _error(self, text):
         self._print_hightlight(fg.red(text))
+    
+    def _info(self, text):
+        print(fg.black(text))

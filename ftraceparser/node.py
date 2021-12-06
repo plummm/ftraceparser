@@ -137,12 +137,17 @@ class Node:
     
     @property
     def header(self):
-        header = "{} | {} | [{}] | {}: {}:".format(self.task, self.pid, self.cpu, self.time_stamp, self.event)
+        header = ''
+        header += self.task + ' '*(15-len(self.task)) + '|'
+        header += ' ' + str(self.pid) + ' '*(10-len(str(self.pid))) + ' |'
+        header += ' [' + str(self.cpu) + ']' + ' '*(4-len(str(self.cpu))) + ' |'
+        header += ' '*(11-len(self.time_stamp)) + self.time_stamp + ':'
+        header += self.event + ':'
         return header
 
     @property
     def text(self):
-        align = 70 - len(self.header)
+        align = 80 - len(self.header)
         return "{}{}{}{}".format(self.header, align*' ', self.prefix, self.info)
     
     def dump(self):
