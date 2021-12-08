@@ -22,6 +22,7 @@ class Terminal(Trace):
         self._regx_cmd_filter = r'^filter(( .+)|$)'
         self._regx_cmd_filter_delete = r'^filter-d'
         self._regx_cmd_clear = r'^clear'
+        self._regx_cmd_show = r'^show(\d+)? (\d+)'
 
     def run(self):
         tmp_filter = []
@@ -43,6 +44,9 @@ class Terminal(Trace):
                 exit(0)
             if command == 'exit':
                 exit(0)
+            if command == 'help':
+                self.print_help()
+                continue
             
             if command.find('|') != -1:
                 t = command.split('|')
@@ -107,6 +111,30 @@ class Terminal(Trace):
             if regx_match(self._regx_cmd_clear, command):
                 self.cmd_clear()
                 continue
+            
+            # show
+            if regx_match(self._regx_cmd_show, command):
+                self.cmd_show(command)
+                continue
+    
+    def print_help(self):
+        print('''
+        help: show this help
+        exit: exit ftrace-parser
+        find: find info in trace
+        findall: find info in trace, and show all occurrences
+        caller: show caller of a node
+        callee: show callee of a node
+        entry: show entry of a node
+        pdn: show pdn of a node
+        pdf: show pdf of a node
+        block: block a node from printing
+        delete: delete a block rule
+        filter: filter trace
+        filter-d: delete filter
+        clear: clear terminal
+        show: show one more multiple nodes in chronological manner
+        ''')
 
     def cmd_find(self, command):
         m = regx_getall(r'(find|findall) ([A-Za-z0-9_.]+)', command)[0]
@@ -305,6 +333,25 @@ class Terminal(Trace):
     
     def cmd_clear(self):
         reset_terminal()
+    
+    def cmd_show(self, command):
+        try:
+            m = regx_getall(self._regx_cmd_show, command)[0]
+            if m[0] != '':
+                n_lines = int(m[0])
+            else:
+                n_lines = 1
+            node_id = int(m[1]) 
+        except ValueError:
+            self._error('show: invalid node id')
+            return
+        self.print_banner()
+        for i in range(0, n_lines):
+            node = self.find_node(node_id+i)
+            if node is None:
+                self._error('show: node {} not found'.format(node_id+i))
+                break
+            self.print_node(node)
     
     def show_around(self, node, deep=3, n=0):
         self.print_banner()
