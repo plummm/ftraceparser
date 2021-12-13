@@ -309,12 +309,12 @@ class Terminal(Trace):
     def add_filter(self, expr):
         key = ''
         index = -1
-        for each in ['<=', '>=', '==']:
+        for each in ['<=', '>=', '==', "!=", '<', '>']:
             if expr.find(each) != -1:
                 t = expr.split(each)
                 key = t[0]
                 data = t[1]
-                if data[0] != '"' or data[-1] != '"':
+                if key != 'pid' and key != 'cpu' and (data[0] != '"' or data[-1] != '"'):
                     data = '"' + data + '"'
                 if key in self.filter:
                     index = super().add_filter(key, each+data)

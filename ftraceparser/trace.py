@@ -125,6 +125,9 @@ class Trace:
                     if not eval('\"{}\"{}'.format(getattr(entry_node, 'id'), expr)) \
                        and not eval('\"{}\"{}'.format(getattr(entry_node, 'function_name'), expr)):
                         return True
+                elif key == 'pid' or key == 'cpu':
+                    if not eval('{}{}'.format(getattr(node, key), expr)):
+                        return True
                 elif not eval('\"{}\"{}'.format(getattr(node, key), expr)):
                         return True
         return False
