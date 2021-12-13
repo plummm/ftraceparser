@@ -1,0 +1,1 @@
+`pip3 install requests progressbar2 console`
