@@ -11,7 +11,7 @@ class Terminal(Trace):
     def __init__(self, file):
         super().__init__()
         self.file = file
-        self._regx_cmd_find = r'^(find|findall) ([A-Za-z0-9_.]+)( in task (\d+))?'
+        self._regx_cmd_find = r'^(find|findall|findexact) ([A-Za-z0-9_.]+)( ((in func \d+)|(between (\d+|begin) and (\d+|end))))?'
         self._regx_cmd_caller = r'^caller (\d+)'
         self._regx_cmd_callee = r'^callee (\d+)'
         self._regx_cmd_entry = r'^entry'
@@ -57,7 +57,7 @@ class Terminal(Trace):
                 filter_cmd = t[1]
                 tmp_filter = self.build_temp_filter(filter_cmd)
 
-            # find | findall
+            # find | findall | findexact
             if regx_match(self._regx_cmd_find, command):
                 self.cmd_find(command)
                 continue
@@ -121,7 +121,7 @@ class Terminal(Trace):
         print('''
         help: show this help
         exit: exit ftrace-parser
-        find: find info in trace
+        find | findall | findexact: find a node by name
         findall: find info in trace, and show all occurrences
         caller: show caller of a node
         callee: show callee of a node
@@ -137,13 +137,36 @@ class Terminal(Trace):
         ''')
 
     def cmd_find(self, command):
-        m = regx_getall(r'(find|findall) ([A-Za-z0-9_.]+)', command)[0]
+        in_regx = r'in func (\d+)'
+        between_regx = r'between (\d+|begin) and (\d+|end)'
+        m = regx_getall(self._regx_cmd_find, command)[0]
+        start_node = None
+        end_node = None
         findall = False
+        findexact = False
+        in_func = False
         find_mode = m[0]
         info = m[1]
-        if find_mode == 'findall':
+        if len(m) > 2:
+            extra = m[3]
+            if regx_match(in_regx, extra):
+                n_id = regx_get(in_regx, extra, 0)
+                func = self.find_node(int(n_id))
+                in_func = True
+                start_node = func.scope_begin_node
+                end_node = func.scope_end_node
+            if regx_match(between_regx, extra):
+                n_id_s = regx_get(between_regx, extra, 0)
+                n_id_e = regx_get(between_regx, extra, 1)
+                if n_id_s != 'begin':
+                    start_node = self.find_node(int(n_id_s))
+                if n_id_e != 'end':
+                    end_node = self.find_node(int(n_id_e))
+        if find_mode.find('findall') != -1:
             findall = True
-        res = self.find_info(info=info, find_all=findall)
+        if find_mode.find('exact') != -1:
+            findexact = True
+        res = self.find_info(info=info, find_all=findall, find_exact=findexact, start_node=start_node, end_node=end_node, in_func=in_func)
         for node in res:
             self.show_around(node)
         if findall or len(res) == 0:
@@ -153,7 +176,7 @@ class Terminal(Trace):
         while True:
             find_next = input('find next? (Y/n)')
             if find_next != 'n':
-                res = self.find_info(info=info, start_node=res[-1])
+                res = self.find_info(info=info, start_node=res[-1], find_exact=findexact, end_node=end_node, in_func=in_func)
                 if len(res) == 0:
                     break
                 for node in res:

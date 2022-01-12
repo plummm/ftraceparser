@@ -144,19 +144,28 @@ class Trace:
                 return self.index2node[node_id]
         return None
     
-    def find_info(self, info, find_all=False, start_node=None):
+    def find_info(self, info, find_all=False, find_exact=False, start_node=None, end_node=None, in_func=False):
         res = []
+
         if start_node != None:
-            bnode = start_node.next_node_by_time
+            bnode = self._next_node(start_node, in_func)
         else:
             bnode = self.begin_node[0]
         while bnode != None:
-                if bnode.info.find(info) != -1:
-                    if not self.is_filtered(bnode):
+            if bnode.info.find(info) != -1:
+                if not self.is_filtered(bnode):
+                    if find_exact:
+                        if bnode.info == (info + '() {'):
+                            res.append(bnode)
+                            if not find_all:
+                                return res
+                    else:
                         res.append(bnode)
                         if not find_all:
                             return res
-                bnode = bnode.next_node_by_time
+            if bnode == end_node:
+                break
+            bnode = self._next_node(bnode, in_func)
         return res
     
     def print_banner(self):
@@ -171,13 +180,19 @@ class Trace:
             banner += ' CPU {} |'.format(i)
         print(banner)
     
+    def get_node(self, node, warn_when_filtered=False):
+        if self.is_filtered(node):
+            if warn_when_filtered:
+                self.logger.warning('some nodes are filtered')
+            return None
+        return node
+    
     def print_node(self, node, highlight=False, trim_bracket=False, warn_when_filtered=False):
         if node is None:
             print('Content has been truncated. This trace did not finish before killing the process.')
             return
-        if self.is_filtered(node):
-            if warn_when_filtered:
-                self.logger.warning('some nodes are filtered')
+        node = self.get_node(node, warn_when_filtered)
+        if node is None:
             return
         data = node.text.split('|')
         align = 10 - len(str(node.id))
@@ -198,11 +213,11 @@ class Trace:
         if end_node != None and start_node.id == end_node.id:
             return 0
         length -= 1
-        if level > 0:
+        if level != 0:
             if len(start_node.children) > 0:
                 length = self.print_trace(start_node.children[0], level-1, length, end_node)
 
-        if length > 0:
+        if length != 0:
             if start_node.is_function and start_node.is_root and level>0:
                 self.print_node(start_node.scope_end_node)
                 length -= 1
@@ -225,6 +240,12 @@ class Trace:
                 f.write(boundary_regx+'\n')
             f.writelines(json.dumps(self, default=self._dump_trace_to_json, sort_keys=True, indent=4, check_circular=False)+'\n')
             f.close()
+    
+    def _next_node(self, node, in_func):
+        if in_func:
+            return node.next_node
+        else:
+            return node.next_node_by_time
     
     def _dump_node_to_json(self, o):
         if type(o.prev_node) == Node:

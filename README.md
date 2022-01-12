@@ -48,7 +48,7 @@ python3 ftraceparser ./trace.report
 ftrace-parser> entry
 ```
 
-![1](.\resources\1.png)
+![1](./resources/1.png)
 
 
 
