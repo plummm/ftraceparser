@@ -114,7 +114,7 @@ For example, to print 10 nodes from node 24 with entering only level 1 callee
 
 If we enter level 3 callee, we will get more details.
 
-![1](.\resources\5.png)
+![1](resources/5.png)
 
 
 
