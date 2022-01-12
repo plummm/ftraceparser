@@ -48,7 +48,7 @@ python3 ftraceparser ./trace.report
 ftrace-parser> entry
 ```
 
-![1](.\resources\1.png)
+![1](resources/1.png)
 
 
 
@@ -58,11 +58,11 @@ ftrace-parser> entry
 ftrace-parser> find [FUNCTION_NAME]
 ```
 
-![1](.\resources\2.png)
+![1](resources/2.png)
 
 To find all occurrences, use `findall`
 
-![1](.\resources\10.png)
+![1](resources/10.png)
 
 
 
@@ -72,7 +72,7 @@ To find all occurrences, use `findall`
 ftrace-parser> caller [ID]
 ```
 
-![1](.\resources\11.png)
+![1](resources/11.png)
 
 
 
@@ -82,7 +82,7 @@ ftrace-parser> caller [ID]
 ftrace-parser> callee [ID]
 ```
 
-![1](.\resources\12.png)
+![1](resources/12.png)
 
 
 
@@ -94,7 +94,7 @@ Find the entry function of this `seq_read()` which has the id of 24
 ftrace-parser> entry [ID]
 ```
 
-![1](.\resources\3.png)
+![1](resources/3.png)
 
 
 
@@ -108,7 +108,7 @@ ftrace-parser> pdn[N] [ID]/[LEVEL]
 
 For example, to print 10 nodes from node 24 with entering only level 1 callee
 
-![1](.\resources\4.png)
+![1](resources/4.png)
 
 
 
@@ -126,7 +126,7 @@ If we enter level 3 callee, we will get more details.
 ftrace-parser> pdf [ID]/[LEVEL]
 ```
 
-![1](.\resources\6.png)
+![1](resources/6.png)
 
 
 
@@ -138,7 +138,7 @@ Sometimes, we don't want to show every function. To block a function from showin
 ftrace-parser> block [FUNCTION_NAME]
 ```
 
-![1](.\resources\7.png)
+![1](resources/7.png)
 
 
 
@@ -168,13 +168,13 @@ ftrace-parser> filter by [EXPR]
 
 For example, we only want to show the trace of task `poc`
 
-![1](.\resources\8.png)
+![1](resources/8.png)
 
 
 
 Or we want to show the trace of pid between 1200 and 1220 
 
-![1](.\resources\9.png)
+![1](resources/9.png)
 
 
 
