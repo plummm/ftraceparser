@@ -20,7 +20,23 @@ The existed ftrace parsers like  `KernelShark` are powerful but lack of customiz
 
 ## Usage
 
+1. [Convert to report](#convert_to_report)
+2. [Open report](#open_a_ftrace_report)
+3. [List entry functions](#list_entry_functions)
+4. [Find function](#find_functions)
+5. [Caller](#caller)
+6. [Callee](#callee)
+7. [Single entry of a function](#entry_of_a_function)
+8. [Print nodes](#print_nodes)
+9. [Print a function](#print_function)
+10. [Block functions](#block_functions)
+11. [Delete block rules](#delete_blocks)
+12. [Add filters](#add_filter)
+13. [Remove filters](#remove_filter)
+
 There are some important features that `ftraceparser` provided.
+
+<a name="convert_to_report"></a>
 
 ### Convert to trace-cmd report
 
@@ -32,7 +48,7 @@ For more information, visit https://www.trace-cmd.org/
 trace-cmd report > trace.report
 ```
 
-
+<a name="open_a_ftrace_report"></a>
 
 ### Open a ftrace report
 
@@ -42,15 +58,17 @@ python3 ftraceparser ./trace.report
 
 ###  
 
+<a name="list_entry_functions"></a>
+
 ### List all entry functions
 
 ```
 ftrace-parser> entry
 ```
 
-![1](./resources/1.png)
+![1](resources/1.png)
 
-
+<a name="find_functions"></a>
 
 ### Find functions
 
@@ -58,13 +76,13 @@ ftrace-parser> entry
 ftrace-parser> find [FUNCTION_NAME]
 ```
 
-![1](.\resources\2.png)
+![1](resources/2.png)
 
 To find all occurrences, use `findall`
 
-![1](.\resources\10.png)
+![1](resources/10.png)
 
-
+<a name="caller"></a>
 
 ### Show the caller of a function
 
@@ -72,9 +90,9 @@ To find all occurrences, use `findall`
 ftrace-parser> caller [ID]
 ```
 
-![1](.\resources\11.png)
+![1](resources/11.png)
 
-
+<a name="callee"></a>
 
 ### Show the callees of a function
 
@@ -82,9 +100,9 @@ ftrace-parser> caller [ID]
 ftrace-parser> callee [ID]
 ```
 
-![1](.\resources\12.png)
+![1](resources/12.png)
 
-
+<a name="entry_of_a_function"></a>
 
 ### Find the entry function of a function
 
@@ -94,9 +112,9 @@ Find the entry function of this `seq_read()` which has the id of 24
 ftrace-parser> entry [ID]
 ```
 
-![1](.\resources\3.png)
+![1](resources/3.png)
 
-
+<a name="print_nodes"></a>
 
 ### Print N nodes from somewhere
 
@@ -108,15 +126,15 @@ ftrace-parser> pdn[N] [ID]/[LEVEL]
 
 For example, to print 10 nodes from node 24 with entering only level 1 callee
 
-![1](.\resources\4.png)
+![1](resources/4.png)
 
 
 
 If we enter level 3 callee, we will get more details.
 
-![1](.\resources\5.png)
+![1](resources/5.png)
 
-
+<a name="print_function"></a>
 
 ### Print the entire function
 
@@ -126,9 +144,9 @@ If we enter level 3 callee, we will get more details.
 ftrace-parser> pdf [ID]/[LEVEL]
 ```
 
-![1](.\resources\6.png)
+![1](resources/6.png)
 
-
+<a name="block_functions"></a>
 
 ### Block some functions
 
@@ -138,9 +156,9 @@ Sometimes, we don't want to show every function. To block a function from showin
 ftrace-parser> block [FUNCTION_NAME]
 ```
 
-![1](.\resources\7.png)
+![1](resources/7.png)
 
-
+<a name="delete_blocks"></a>
 
 ### Delete block functions
 
@@ -156,7 +174,7 @@ To delete all functions that have been blocked, just use `delete` followed by no
 ftrace-parser> delete
 ```
 
-
+<a name="add_filter"></a>
 
 ### Filter
 
@@ -168,15 +186,15 @@ ftrace-parser> filter by [EXPR]
 
 For example, we only want to show the trace of task `poc`
 
-![1](.\resources\8.png)
+![1](resources/8.png)
 
 
 
 Or we want to show the trace of pid between 1200 and 1220 
 
-![1](.\resources\9.png)
+![1](resources/9.png)
 
-
+<a name="remove_filter"></a>
 
 ### Remove filters
 
