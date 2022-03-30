@@ -307,6 +307,9 @@ class Terminal(Trace):
             return
         try:
             m = regx_get(r'^filter by (.+)', command, 0)
+            if m == None:
+                self._error('filter: invalid arguments. [by task|by pid|by cpu|by time stamp|by event|by entry]')
+                return
         except ValueError:
             self._error('filter: invalid arguments. [by task|by pid|by cpu|by time stamp|by event|by entry]')
             return

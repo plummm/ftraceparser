@@ -36,6 +36,72 @@ class Trace:
         else:
             self.trace_text = trace_text
     
+    def convert_ftrace(self, ftrace_file, entry_functions: list, save_to=None):
+        res = []
+        waiting_buffer = {}
+        context_switcher = '------------------------------------------'
+        context_switch_regx = r'(\d+)\)( )+([\<\>\(\)a-zA-Z0-9\-\_\.]+)-(\d+)( )+=>( )+([\<\>\(\)a-zA-Z0-9\-\_\.]+)-(\d+)'
+        content_regx = r'(\d+)\)((.+)(\|( )+)(([A-Za-z0-9_.]+\(\))(;| {)|}))'
+        kernel_log_regx = r'\[(( )+)?(\d+\.\d+)\]\[(( )+)?T(\d+)\] (.+)'
+
+        process = {}
+        ftrace_fd = open(ftrace_file, 'r')
+        texts = ftrace_fd.readlines()
+        begin_cpu = {}
+        for line in texts:
+            line = line.strip()
+            timestamp = regx_get(kernel_log_regx, line, 2)
+            text = regx_get(kernel_log_regx, line, 6)
+            if text == context_switcher:
+                continue
+            if regx_match(content_regx, text):
+                cpu = regx_get(content_regx, text, 0)
+                content = regx_get(content_regx, text, 1)
+                cpu = int(cpu)
+                if '}' in content:
+                    event = 'funcgraph_exit'
+                else:
+                    event = 'funcgraph_entry'
+
+                if cpu not in begin_cpu:
+                    for entry in entry_functions:
+                        if entry in content:
+                            begin_cpu[cpu] = 1
+                            break
+                record = cpu in begin_cpu
+                
+                if record:
+                    if cpu not in process:
+                        res.append({'poc_name': None, 'pid': None, 'cpu': cpu, 'time_stamp': timestamp, 'event': event, 'info': content})
+                    else:
+                        res.append({'poc_name': process[cpu][0], 'pid': process[cpu][1], 'cpu': cpu, 'time_stamp': timestamp, 'event': event, 'info': content})
+            
+            if regx_match(context_switch_regx, text):
+                cpu = regx_get(context_switch_regx, text, 0)
+                cpu = int(cpu)
+                poc_name_from = regx_get(context_switch_regx, text, 2)
+                poc_pid_from = regx_get(context_switch_regx, text, 3)
+                poc_name_to = regx_get(context_switch_regx, text, 6)
+                poc_pid_to = regx_get(context_switch_regx, text, 7)
+                if cpu not in process:
+                    for each in res:
+                        if each['cpu'] == cpu:
+                            each['poc_name'] = poc_name_from
+                            each['pid'] = poc_pid_from
+
+                process[cpu] = [poc_name_to, poc_pid_to]
+        
+        if save_to == None:
+            print("cpus={}".format(len(begin_cpu)))
+            for each in res:
+                print("{}-{}   [{}]   {}: {}: {}".format(each['poc_name'], each['pid'], each['cpu'], each['time_stamp'], each['event'], each['info']))
+        else:
+            with open(save_to, 'w') as f:
+                f.write("cpus={}\n".format(len(begin_cpu)))
+                for each in res:
+                    f.write("{}-{}   [{}]   {}: {}: {}\n".format(each['poc_name'], each['pid'], each['cpu'], each['time_stamp'], each['event'], each['info']))
+        return
+
     def serialize(self):
         node_id = 0
         if self.trace_text == []:
@@ -199,7 +265,7 @@ class Trace:
         if highlight:
             header = "{}{}|{}".format(fg.lightmagenta(str(node.id)), align*' ', fg.red(node.text))
         else:
-            header = "{}{}|{}|{}|{}|{}{}".format(fg.lightmagenta(str(node.id)), align*' ', fg.yellow(data[0]), fg.black(data[1]), fg.cyan(data[2]), fg.green(data[3]), fg.blue('|'+'|'.join((data[4:]))))
+            header = "{}{}|{}|{}|{}|{}{}".format(fg.lightmagenta(str(node.id)), align*' ', fg.yellow(data[0]), fg.yellow(data[1]), fg.cyan(data[2]), fg.green(data[3]), fg.yellow('|'+'|'.join((data[4:]))))
         if trim_bracket:
             header = header[:header.find('{')] + ';'
         print(header)

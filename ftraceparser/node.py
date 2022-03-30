@@ -35,7 +35,7 @@ class Node:
         self.parse(line)
 
     def parse(self, line):
-        ftrace_line_regx = r'(<[a-zA-Z0-9\-\_\.]+>|[a-zA-Z0-9\-\_\.]+)-(\d+)( )+\[(\d+)\]( )+(\d+\.\d+): (funcgraph_entry|funcgraph_exit):.+(\|( )+)(([A-Za-z0-9_.]+\(\))(;| {)|})'
+        ftrace_line_regx = r'([\<\>\(\)a-zA-Z0-9\-\_\.]+)-(\d+)( )+\[(\d+)\]( )+(\d+\.\d+): (funcgraph_entry|funcgraph_exit):.+(\|( )+)(([A-Za-z0-9_.]+\(\))(;| {)|})'
 
         self.line = line
         try:
