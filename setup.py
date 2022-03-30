@@ -9,12 +9,12 @@ README = (HERE / "README.md").read_text()
 
 # This call to setup() does all the work
 setup(
-    name="ftracepaser",
+    name="ftraceparser",
     version="0.1.2",
     description="Parse ftrace report in a human readable format",
     long_description=README,
     long_description_content_type="text/markdown",
-    url="https://github.com/plummm/ftracepaser",
+    url="https://github.com/plummm/ftraceparser",
     author="Xiaochen Zou",
     author_email="etenal@etenal.me",
     license="MIT",
