@@ -10,7 +10,7 @@ from console import fg, bg, fx
 
 
 class Trace:
-    def __init__(self, logger=None, debug=False):
+    def __init__(self, as_servicve=False, logger=None, debug=False):
         self.trace_text = None
         self.n_cpu = 0
         self.n_task = 0
@@ -22,6 +22,7 @@ class Trace:
         self.filter = {}
         self.logger = logger
         self.debug = debug
+        self.as_servicve = as_servicve
         self.remove_filter_all()
         if self.logger == None:
            self.logger = init_logger(__name__, debug=self.debug, propagate=self.debug, handler_type=STREAM_HANDLER)
@@ -134,7 +135,13 @@ class Trace:
             progressbar.Bar(),
             ' (', progressbar.Percentage(),' | ', progressbar.ETA(), ') ',
         ]
-        for i in progressbar.progressbar(range(start+2, total_line), widgets=widgets):
+
+        if self.as_servicve:
+            it = range(start+2, total_line)
+        else:
+            it = progressbar.progressbar(range(start+2, total_line), widgets=widgets)
+
+        for i in it:
             line = self.trace_text[i].strip()
 
             try:
