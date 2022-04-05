@@ -105,6 +105,7 @@ class Trace:
 
     def serialize(self):
         node_id = 0
+        abandoned_pid = []
         if self.trace_text == []:
             raise ValueError('Trace is empty')
         
@@ -149,6 +150,8 @@ class Trace:
             except NodeTextError:
                 self.logger.error("Invalid node format {}".format(line))
                 continue
+            if child.pid in abandoned_pid:
+                continue
             last_node.next_node_by_time = child
             child.prev_node_by_time = last_node
             last_node = child
@@ -156,7 +159,12 @@ class Trace:
             self.index2node[node_id] = last_node
             node_id += 1
             if child.pid in parents:
-                parents[child.pid].add_node(child)
+                try:
+                    parents[child.pid].add_node(child)
+                except Exception as e:
+                    self.logger.error("pid {} missing node in trace, will be truncated".format(child.pid))
+                    if child.pid not in abandoned_pid:
+                        abandoned_pid.append(child.pid)
             else:
                 self.begin_node.append(child)
             parents[child.pid] = child
