@@ -23,6 +23,8 @@ class Terminal(Trace):
         self._regx_cmd_filter_delete = r'^filter-d'
         self._regx_cmd_clear = r'^clear'
         self._regx_cmd_show = r'^show(\d+)? (\d+)'
+        self._regx_cmd_export_func = r'^export-func (\d+) ([\w./\\-]+)$'
+        self._regx_cmd_compare = r'^compare (\d+) ([\w./\\-]+)( (\d+))?$'
 
     def run(self):
         tmp_filter = []
@@ -116,6 +118,16 @@ class Terminal(Trace):
             if regx_match(self._regx_cmd_show, command):
                 self.cmd_show(command)
                 continue
+                
+            # export-func
+            if regx_match(self._regx_cmd_export_func, command):
+                self.cmd_export_func(command)
+                continue
+            
+            # compare
+            if regx_match(self._regx_cmd_compare, command):
+                self.cmd_compare(command)
+                continue
     
     def print_help(self):
         print('''
@@ -126,14 +138,15 @@ class Terminal(Trace):
         caller: show caller of a node
         callee: show callee of a node
         entry: show entry of a node
-        pdn: show pdn of a node
-        pdf: show pdf of a node
-        block: block a node from printing
-        delete: delete a block rule
+        pdn[length] (node_id)\[level]: show pdn of a node
+        pdf (node_id)\[level]: show pdf of a node
+        block (func): block a node from printing
+        delete (func): delete a block rule
         filter: filter trace
         filter-d: delete filter
         clear: clear terminal
-        show: show one more multiple nodes in chronological manner
+        show[length] (node_id): show one more multiple nodes in chronological manner
+        export-func (node_id) (file): export a function trace to a file
         ''')
 
     def cmd_find(self, command):
@@ -192,6 +205,9 @@ class Terminal(Trace):
             self._error('caller: invalid node id')
             return
         node = self.find_node(node_id)
+        if node == None:
+            self.logger.error('No such node: {}'.format(node_id))
+            return
         if node.parent != None:
             self.print_banner()
             self.print_node(node.parent)
@@ -209,6 +225,9 @@ class Terminal(Trace):
             self._error('callee: invalid node id')
             return
         node = self.find_node(node_id)
+        if node == None:
+            self.logger.error('No such node: {}'.format(node_id))
+            return
         self.print_banner()
         self.print_trace(node, level=1, length=MAX_LINES)
     
@@ -221,6 +240,9 @@ class Terminal(Trace):
         if len(m) > 0:
             node_id = int(m[0])
             node = self.find_node(node_id)
+            if node == None:
+                self.logger.error('No such node: {}'.format(node_id))
+                return
             hop = self.get_hops_from_entry_node(node)
             node = self.find_node(hop.pop())
             self.print_banner()
@@ -254,6 +276,9 @@ class Terminal(Trace):
             self._error('pdn: invalid node id')
             return
         node = self.find_node(node_id)
+        if node == None:
+            self.logger.error('No such node: {}'.format(node_id))
+            return
         self.print_banner()
         self.print_trace(node, level=level, length=n_lines)
         return
@@ -270,6 +295,9 @@ class Terminal(Trace):
             self._error('pdf: invalid node id')
             return
         node = self.find_node(node_id)
+        if node == None:
+            self.logger.error('No such node: {}'.format(node_id))
+            return
         if not node.is_function:
             self._error('pdf: node {} is not a function begginning'.format(node_id))
             return
@@ -331,6 +359,51 @@ class Terminal(Trace):
         filters = m.split(' ')
         for each in filters:
             self.remove_filter(each)
+    
+    def cmd_export_func(self, command):
+        try:
+            m = regx_getall(self._regx_cmd_export_func, command)[0]
+            if len(m) != 2:
+                raise ValueError
+            node_id = int(m[0])
+            file = m[1]
+        except ValueError:
+            self._error('export-func: invalid arguments')
+            return
+        node = self.find_node(node_id)
+        if node == None:
+            self.logger.error('No such node: {}'.format(node_id))
+            return
+        if not node.is_function:
+            self._error('pdf: node {} is not a function begginning'.format(node_id))
+            return
+        self.print_banner()
+        nodes = self.gather_trace_nodes(node, level=MAX_LINES, end_node=node.scope_end_node)
+        self.dump_to_json(file, nodes)
+    
+    def cmd_compare(self, command):
+        try:
+            m = regx_getall(self._regx_cmd_compare, command)[0]
+            node_id = m[0]
+            file = m[1]
+            if len(m) == 4:
+                level = int(m[3])
+            else:
+                level = -1
+        except ValueError:
+            self._error('compare: invalid arguments')
+            return
+        r_node = self.find_node(int(node_id))
+        t_node = self.load_from_json(file)
+        nodes_match_info = self.compare_nodes(r_node, t_node, level)
+        for each in nodes_match_info:
+            if each[0] == MATCH_NODE:
+                self.print_node(each[1])
+            elif each[0] == REFER_MISS_NODE:
+                self.print_node(each[1], highlight=True)
+            elif each[0] == TARGET_MISS_NODE:
+                self.print_node(each[1], green=True)
+        return
                 
     def add_filter(self, expr):
         key = ''

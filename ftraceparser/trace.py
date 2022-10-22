@@ -1,14 +1,19 @@
 from logging import StreamHandler
 from os import write
+from tty import setraw
 import progressbar
 
 from .tool_box import *
 from .strings import *
 from .node import Node
-from .error import NodeTextError
+from .error import NodeTextError, NodeMergeScope
 from console import fg, bg, fx
+from difflib import SequenceMatcher
 
-
+MAX_LINES = 1000000000
+MATCH_NODE = 0
+REFER_MISS_NODE = 1
+TARGET_MISS_NODE = 2
 class Trace:
     def __init__(self, as_servicve=False, logger=None, debug=False):
         self.trace_text = None
@@ -36,6 +41,50 @@ class Trace:
             self.trace_text = trace_text.split('\n')
         else:
             self.trace_text = trace_text
+    
+    def load_from_json(self, json_file):
+        if not os.path.exists(json_file):
+            self.logger.error('File {} does not exist.'.format(json_file))
+            return None
+        with open(json_file, 'r') as f:
+            text = f.readlines()
+
+            begin_node = None
+            node_id_list = {}
+            node_json_text = ""
+            for line in text:
+                line = line.strip()
+                if line == boundary_regx:
+                    j = json.loads(node_json_text)
+                    node_json_text = ""
+                    if j == None:
+                        continue
+                    node = self._json_to_node(j)
+                    if begin_node == None:
+                        begin_node = node
+                    node_id_list[node.id] = node
+                    continue
+                else:
+                    node_json_text += line + '\n'
+            
+            for _id in node_id_list:
+                node = node_id_list[_id]
+                node_fields = ['prev_node', 'next_node', 'prev_node_by_time', 'next_node_by_time', 'prev_sibling', 'next_sibling',
+                    'scope_begin_node', 'scope_end_node', 'parent']
+                for field in node_fields:
+                    value = getattr(node, field)
+                    if type(value) == int:
+                        if value in node_id_list:
+                            setattr(node, field, node_id_list[value])
+                        else:
+                            setattr(node, field, None)
+                for i in range(len(node.children)):
+                    if node.children[i] in node_id_list:
+                        node.children[i] = node_id_list[node.children[i]]
+                    else:
+                        node.children[i] = None
+        self.logger.info("trace file {} loaded".format(json_file))
+        return begin_node
     
     def convert_ftrace(self, ftrace_file, entry_functions: list, save_to=None):
         res = []
@@ -118,6 +167,8 @@ class Trace:
         for i in range(start, total_line):
             if regx_match(r'CPU (\d+) is empty', self.trace_text[i]):
                 continue
+            if regx_match(r'version = \d+', self.trace_text[i]):
+                continue
             start = i
             break
         self.n_cpu = int(regx_get(r'cpus=(\d+)', self.trace_text[start], 0))
@@ -161,6 +212,8 @@ class Trace:
             if child.pid in parents:
                 try:
                     parents[child.pid].add_node(child)
+                except NodeMergeScope:
+                    continue
                 except Exception as e:
                     self.logger.error("pid {} missing node in trace, will be truncated".format(child.pid))
                     if child.pid not in abandoned_pid:
@@ -268,7 +321,7 @@ class Trace:
             return None
         return node
     
-    def print_node(self, node, highlight=False, trim_bracket=False, warn_when_filtered=False):
+    def print_node(self, node, highlight=False, green=False, trim_bracket=False, warn_when_filtered=False):
         if node is None:
             print('Content has been truncated. This trace did not finish before killing the process.')
             return
@@ -279,10 +332,12 @@ class Trace:
         align = 10 - len(str(node.id))
         if highlight:
             header = "{}{}|{}".format(fg.lightmagenta(str(node.id)), align*' ', fg.red(node.text))
+        elif green:
+            header = "{}{}|{}".format(fg.lightmagenta(str(node.id)), align*' ', fg.green(node.text))
         else:
             header = "{}{}|{}|{}|{}|{}{}".format(fg.lightmagenta(str(node.id)), align*' ', fg.yellow(data[0]), fg.yellow(data[1]), fg.cyan(data[2]), fg.green(data[3]), fg.yellow('|'+'|'.join((data[4:]))))
         if trim_bracket:
-            header = header[:header.find('{')] + ';'
+            header = header[:header.find(' {')] + ';'
         print(header)
     
     def print_trace(self, start_node, level=0, length=30, end_node=None):
@@ -304,23 +359,123 @@ class Trace:
                 length -= 1
                 if end_node != None and start_node.scope_end_node.id == end_node.id:
                     return 0
-        
+        if self._id_over(start_node.next_sibling, end_node):
+            return length
         length = self.print_trace(start_node.next_sibling, level, length, end_node)
         return length
+
+    def compare_nodes(self, r_node: Node, t_node: Node, level: int):
+        return self._compare_nodes(r_node, t_node, level)
+
+    def gather_trace_nodes(self, start_node, level=0, end_node=None):
+        res = []
+        if end_node == None:
+            return res
+        if start_node == None:
+            return res
+        if start_node.function_name in self.blacklist:
+            return res.extend(self.gather_trace_nodes(start_node.next_sibling, level, end_node))
+        res.append(start_node)
+        if start_node.id == end_node.id:
+            return res
+
+        if level != 0:
+            if len(start_node.children) > 0:
+                res.extend(self.gather_trace_nodes(start_node.children[0], level-1, end_node))
+
+        if start_node.is_function and start_node.is_root and level>0 and start_node.scope_end_node.id < end_node.id:
+            res.append(start_node.scope_end_node)
+            if start_node.scope_end_node.id == end_node.id:
+                return res
+        
+        if self._id_over(start_node.next_sibling, end_node):
+            return res
+        res.extend(self.gather_trace_nodes(start_node.next_sibling, level, end_node))
+        return res
     
-    def dump_to_json(self, file_name):
+    def dump_to_json(self, file_name, nodes):
         with open(file_name, 'w') as f:
             widgets=[
                 ' [Caching trace data] ',
                 progressbar.Bar(),
                 ' (', progressbar.Percentage(),' | ', progressbar.ETA(), ') ',
             ]
-            for i in progressbar.progressbar(range(0, len(self.node)), widgets=widgets):
-                each = self.node[i]
+            for i in progressbar.progressbar(range(0, len(nodes)), widgets=widgets):
+                each = nodes[i]
                 f.writelines(json.dumps(each, default=self._dump_node_to_json, sort_keys=True, indent=4, check_circular=False)+'\n')
                 f.write(boundary_regx+'\n')
-            f.writelines(json.dumps(self, default=self._dump_trace_to_json, sort_keys=True, indent=4, check_circular=False)+'\n')
+            #f.writelines(json.dumps(self, default=self._dump_trace_to_json, sort_keys=True, indent=4, check_circular=False)+'\n')
             f.close()
+    
+    def _id_over(self, node1, node2):
+        if node1 == None or node2 == None:
+            return False
+        return node1.id > node2.id
+
+    def _compare_nodes(self, r_node: Node, t_node: Node, level=-1):
+        res = []
+        if level == 0:
+            return res
+
+        res.append((MATCH_NODE, r_node))
+        t_idx = -1
+        for callee in r_node.children:
+            t, match_t_child_node, match_r_child_node = self._find_callee_by_func_name(callee, t_node, t_idx+1)
+            if t >= 0:
+                if match_r_child_node == None:
+                    if t - t_idx > 1:
+                        r_missing_nodes = self.gather_trace_nodes(t_node.children[i], end_node=match_t_child_node.prev_sibling.scope_end_node, level=level-1)
+                        for each in r_missing_nodes:
+                            res.append((REFER_MISS_NODE, each))
+                    t_idx = t
+                    res.extend(self._compare_nodes(callee, match_t_child_node, level-1))
+                if match_r_child_node != None:
+                    t_missing_nodes = self.gather_trace_nodes(callee, end_node=match_r_child_node.prev_sibling.scope_end_node, level=level-1)
+                    for each in t_missing_nodes:
+                        res.append((TARGET_MISS_NODE, each))
+                    t_idx = t
+                    res.extend(self._compare_nodes(match_r_child_node, match_t_child_node, level-1))
+            else:
+                t_missing_nodes = self.gather_trace_nodes(callee, end_node=match_t_child_node, level=level-1)
+                for each in t_missing_nodes:
+                    res.append((TARGET_MISS_NODE, each))
+        if t_idx < len(t_node.children) - 1 and t_idx != -1:
+            for i in range(t_idx+1, len(t_node.children)):
+                r_missing_nodes = self.gather_trace_nodes(t_node.children[i], end_node=t_node.children[i].scope_end_node, level=level-1)
+                for each in r_missing_nodes:
+                    res.append((REFER_MISS_NODE, each))
+        if level > 0 and r_node.scope_end_node != None:
+            res.append((MATCH_NODE, r_node.scope_end_node))
+        return res
+
+    def _find_callee_by_func_name(self, r_node: Node, t_node: Node, idx):
+        for i in range(idx, len(t_node.children)):
+            if t_node.children[i].function_name == r_node.function_name:
+                return i, t_node.children[i], None
+        for i in range(idx, len(t_node.children)):
+            for j in range(0, len(r_node.children)):
+                child = r_node.children[j]
+                if t_node.children[i].function_name == child.function_name:
+                    return i, t_node.children[i], child
+        for i in range(idx, len(t_node.children)):
+            if self._similar_callee(t_node.children[i], r_node):
+                return i, t_node.children[i]
+        return -1, r_node.scope_end_node, None
+    
+    def _similar_callee(self, node1: Node, node2: Node):
+        seq1 = []
+        seq2 = []
+        for each in node1.children:
+            seq1.append(each.function_name)
+        for each in node2.children:
+            seq2.append(each.function_name)
+        return SequenceMatcher(None, seq1, seq2).ratio() > 0.5
+
+    def _json_to_node(self, data):
+        node = Node(None)
+        for key in data:
+            setattr(node, key, data[key])
+        return node
     
     def _next_node(self, node, in_func):
         if in_func:
@@ -328,28 +483,20 @@ class Trace:
         else:
             return node.next_node_by_time
     
-    def _dump_node_to_json(self, o):
-        if type(o.prev_node) == Node:
-            o.prev_node = o.prev_node.id
-        if type(o.next_node) == Node:
-            o.next_node = o.next_node.id
-        if type(o.prev_sibling) == Node:
-            o.prev_sibling = o.prev_sibling.id
-        if type(o.next_sibling) == Node:
-            o.next_sibling = o.next_sibling.id
-        if type(o.scope_begin_node) == Node:
-            o.scope_begin_node = o.scope_begin_node.id
-        if type(o.scope_end_node) == Node:
-            o.scope_end_node = o.scope_end_node.id
-        if type(o.parent) == Node:
-            o.parent = o.parent.id
-        if type(o.prev_node_by_time) == Node:
-            o.prev_node_by_time = o.prev_node_by_time.id
-        if type(o.next_node_by_time) == Node:
-            o.next_node_by_time = o.next_node_by_time.id
+    def _dump_node_to_json(self, o: Node):
+        t = Node(line=None)
+        for key in o.__dict__:
+            setattr(t, key, getattr(o, key))
+        t.children = []
+        node_fields = ['prev_node', 'next_node', 'prev_node_by_time', 'next_node_by_time', 'prev_sibling', 'next_sibling',
+                    'scope_begin_node', 'scope_end_node', 'parent']
+        for field in node_fields:
+            node = getattr(o, field)
+            if type(node) == Node:
+                setattr(t, field, node.id)
         for i in range(0, len(o.children)):
-            o.children[i] = o.children[i].id
-        return o.__dict__
+            t.children.append(o.children[i].id)
+        return t.__dict__
     
     def _dump_trace_to_json(self, o):
         for i in range(0, len(o.node)):
