@@ -92,7 +92,7 @@ class Trace:
         context_switcher = '------------------------------------------'
         context_switch_regx = r'(\d+)\)( )+([\<\>\(\)a-zA-Z0-9\-\_\.]+)-(\d+)( )+=>( )+([\<\>\(\)a-zA-Z0-9\-\_\.]+)-(\d+)'
         content_regx = r'(\d+)\)((.+)(\|( )+)(([A-Za-z0-9_.]+\(\))(;| {)|}))'
-        kernel_log_regx = r'\[(( )+)?(\d+\.\d+)\]\[(( )+)?T(\d+)\] (.+)'
+        kernel_log_regx = r'\[(( )+)?(\d+\.\d+)\]\[(( )+)?(T|C|P)(\d+)\] (.+)'
 
         process = {}
         ftrace_fd = open(ftrace_file, 'r')
@@ -101,7 +101,7 @@ class Trace:
         for line in texts:
             line = line.strip()
             timestamp = regx_get(kernel_log_regx, line, 2)
-            text = regx_get(kernel_log_regx, line, 6)
+            text = regx_get(kernel_log_regx, line, 7)
             if text == context_switcher:
                 continue
             if regx_match(content_regx, text):
