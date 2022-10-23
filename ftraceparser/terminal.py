@@ -229,7 +229,7 @@ class Terminal(Trace):
             self.logger.error('No such node: {}'.format(node_id))
             return
         self.print_banner()
-        self.print_trace(node, level=1, length=MAX_LINES)
+        self.print_trace(node, level=1, length=MAX_LINES, end_node=node.scope_end_node)
     
     def cmd_entry(self, command):
         try:
